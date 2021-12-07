@@ -1,0 +1,138 @@
+---
+title: "NYPD Shooting Incident Project"
+author: "M. Terry"
+date: "November 17, 2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_packages, include=FALSE}
+library(tidyverse)
+library(lubridate)
+
+```
+
+## Read in the data
+Set the data source and read in the data.
+
+
+```{r import, message=FALSE}
+
+# read in the data set and view a summary of the data
+nypd_shootings <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv")
+summary(nypd_shootings)
+
+```
+
+## Tidy and Transform the Data
+Next, select only the columns of interest, make sure the formats are correct, and review for missing data. 
+```{r tidy_data}
+
+# After reviewing the data there appears to be several columns I'm okay omitting as they
+# are either lacking data or are not required for the  analyses I intend to perform. 
+# Of those columns I intend to keep, the only one that is in the wrong format is OCCUR_DATE,
+# so I corrected that.
+
+nypd_shootings <- nypd_shootings %>%
+  select(-c(INCIDENT_KEY, PRECINCT, JURISDICTION_CODE, LOCATION_DESC, PERP_AGE_GROUP,
+            PERP_SEX, PERP_RACE, X_COORD_CD, Y_COORD_CD, Latitude, Longitude,
+            Lon_Lat)) %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+
+# Check to see if there is any missing data. There was no missing data from the columns I 
+# opted to include for analysis per the output below. 
+nypd_shootings %>%
+  select(everything()) %>%
+  summarise_all(funs(sum(is.na(.))))
+
+```
+
+## Add Visualizations, Analysis and Model the Data
+Plotting every incident resulted in a visual that was hard to interpret, so the first step I took was to create a simple model that summarized the total number of incidents per month and visualize that data to see if there are any easily identifiable trends or patterns. In the first plot below the linear trend line shows a consistent decrease in the total number of incidents from 2006 to current, though there was a spike in 2020 which warrants further analysis. There also appears to be seasonality in the data. 
+```{r summarize_by_month}
+# The first step was to group the total number of incidents per month
+total_incidents_by_month <- nypd_shootings %>%
+  group_by(monthly_date = floor_date(OCCUR_DATE, "month")) %>%
+  summarise(count = n())
+
+# Next, plot the summarized data with a trend line. 
+total_incidents_by_month %>%
+  ggplot(aes(x = monthly_date, y = count)) +
+  geom_line(aes(color = "count")) +
+  geom_point(aes(color = "count")) +
+  geom_smooth(method = lm)
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "NYPD Shooting Incidents", y= NULL)
+
+```
+
+I also wanted to view the total number of incidents broken out by victim sex. There were far fewer female victims than male victims, which is what I had suspected. When reviewing this visual, I realized that my assumption about victim sex could potentially introduce bias into my analysis, something to be aware of (see section on bias). 
+
+There also appears to be a steeper decline in male victim incidents when compared to female victims. There are observations that don't fall either in M or F category, but those values are minimal. The number of incidents for both male and female victims spiked in 2020. 
+```{r summarize_monthly_vicSex}
+totals_by_month_sex <- nypd_shootings %>%
+  group_by(VIC_SEX,monthly_date = floor_date(OCCUR_DATE, "month")) %>%
+  summarize(Inc_per_sex = n())
+
+```
+```{r}
+ggplot(totals_by_month_sex, aes(x=monthly_date, y=Inc_per_sex, color=VIC_SEX))+
+  geom_line()+
+  geom_point()+
+  geom_smooth(method=lm)
+
+```
+
+I was also interested to see the number of shooting incidents per month broken out by borough.
+```{r summarize_by_boro}
+incidents_by_boro_by_month <- nypd_shootings %>%
+  group_by(BORO,monthly_date = floor_date(OCCUR_DATE, "month")) %>%
+  summarize(Inc_per_boro = n())
+
+```
+
+All boroughs have a downward trend in the number of shooting incidents, with the possible exception of Staten Island, where the number of incidents appear to be flat. There appears to be seasonality in the data for every borough as well. The spike in incidents we saw in early 2020 for the total number of incidents is reflected in each borough. The boroughs with the highest number of overall incidents in 2006 look to have experienced the sharpest decline so that by the end of 2019 there is a much smaller delta between boroughs than there was in 2006. It would be interesting to do a deep dive to discern what factors led to that. 
+```{r visualize_boro_data}
+ggplot(incidents_by_boro_by_month, aes(monthly_date, Inc_per_boro, color = BORO))+
+  geom_line()+
+  geom_smooth(method=lm)
+```
+
+The recent spike in the number of incidents warrants more investigation, so I filtered the borough data to only show incidents from Jan 1, 2020 on. The plot shows a spike in the number of incidents in the summer months for every borough, though it's much less pronounced in Staten Island. This timeline not only coincides with the seasonality observed previously, but also the pandemic and protests that were going on across the US. I can't conclusively say those factors caused the spike from this data set, making an observation. 
+
+
+```{r beyond_2020}
+beyond_2020 <- incidents_by_boro_by_month %>%
+  filter(monthly_date >= as.Date("2020-01-01"))
+
+ggplot(beyond_2020, aes(monthly_date, Inc_per_boro, color = BORO))+
+  geom_line()+
+  geom_point()+
+  geom_smooth(method=lm)
+
+```
+
+# Conclusion and Bias Identification
+## Conclusion: 
+The overall number of shooting incidents has been trending downwards since 2006. Seasonality appears to exist, with warm summer months showing a spike in the number of incidents. That makes sense as the warm weather causes more people to get outside of their homes and interact. Those boroughs with the most incidents in 2006 experienced the largest decline up until summer of 2020, then experienced the largest spike in incidents, suggesting they may be the most volatile. I would speculate the civil unrest, protests and pandemic were a driving force behind the spike, but it would just be speculation. Despite the recent spike, the year over year decline from 2006 through 2020 shouldn't be dismissed. I think both the decline and the spike can provide valuable information:
+
+Firstly, whatever was being done to decrease the number of shooting incidents prior to the summer of 2020 seems like it was having a positive impact. Progress was being made, and even though the system wasn't perfect, it appears as though there were policies and practices in place that were helping to decrease the total number of incidents across all boroughs. It would require further analysis, but perhaps the fact that the discrepancy in number of incidents was becoming smaller between the boroughs is a positive indicator of other achievements, such as income equality, education equality, etc. 
+
+Secondly, the data suggests that NYC was not prepared to properly respond to the incidents that unfolded in the summer of 2020 (not just NYC I'm sure). That should be considered when putting together future contingency plans.
+
+## Bias identification
+Who collects this data is a source of bias that needs to be considered. The description on the website says it's a list of "every shooting incident that occurred in NYC". We know that's not true, it's only a list of every shooting incident collected by the NYPD. So we know there are incidents that were not reported to the NYPD - but without additional information we don't know if the number of unreported incidents were disproportionately high for certain boroughs, victim demographics, etc. It's possible this data is skewed, but without additional information no adjustments can be made. 
+
+I found that both age and sex of perps and victims could potentially introduce personal bias in my analysis. Before analyzing the data, I assumed that both female victims and perps would be minimal, and that as the age groups for perp & victim went up the number of incidents would decrease. I didn't perform an analysis based on age, and didn't analyze perp sex as there was too much missing data, but did analyze victim sex. As it turns out, there were far fewer female victims than male, but good to note where the possibility for bias could come into play. I didn't perform any additional analysis that would require adjustment for my personal bias. 
+
+#Add session info here
+```{r sessionInfo}
+sessionInfo()
+```
+
